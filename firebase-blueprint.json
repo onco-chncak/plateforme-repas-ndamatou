@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "Meal": {
+      "title": "Meal",
+      "description": "Represents a menu item or a proposed dish for the hospital meal platform",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the meal" },
+        "name": { "type": "string", "description": "Name of the dish" },
+        "description": { "type": "string", "description": "Long recipe or menu description" },
+        "category": { "type": "string", "enum": ["entrée", "plat", "dessert", "boisson"], "description": "Meal category" },
+        "price": { "type": "number", "description": "Price in FCFA" },
+        "stock": { "type": "number", "description": "Portions currently available" },
+        "maxStock": { "type": "number", "description": "Maximum stocking limit for preparation planning" },
+        "image": { "type": "string", "description": "Emoji indicator or image URL representing the food item" },
+        "isNextDay": { "type": "boolean", "description": "Is this a proposal for tomorrow's menu" },
+        "votesNextDay": { "type": "number", "description": "Number of votes received for next-day menu planning" },
+        "votedBy": { "type": "array", "description": "List of user IDs who voted for this dish" },
+        "isAvailableToday": { "type": "boolean", "description": "Is the dish currently for sale today" },
+        "calories": { "type": "number", "description": "Nutritional energy content in calories" },
+        "allergens": { "type": "array", "description": "Potential allergenic ingredients in this meal" }
+      },
+      "required": ["id", "name", "category", "price", "stock", "maxStock", "isNextDay", "isAvailableToday", "calories", "allergens"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a lunch meal order made by a hospital staff member",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique order tracking ID (e.g. CMD-0872)" },
+        "employeeId": { "type": "string", "description": "ID of the placing hospital staff" },
+        "employeeName": { "type": "string", "description": "Full name of the staff member" },
+        "employeeEmail": { "type": "string", "description": "Professional email address" },
+        "employeePhone": { "type": "string", "description": "Contact phone number" },
+        "badgeNumber": { "type": "string", "description": "Hospital badge scanning/card identification" },
+        "department": { "type": "string", "description": "Assigned hospital department" },
+        "building": { "type": "string", "description": "Destination hospital wing/building" },
+        "floor": { "type": "string", "description": "Floors destination" },
+        "room": { "type": "string", "description": "Room or desk number" },
+        "items": { "type": "array", "description": "List of dishes and quantities in this order" },
+        "total": { "type": "number", "description": "Total checkout price in FCFA" },
+        "status": { "type": "string", "enum": ["pending", "preparing", "delivering", "delivered", "cancelled"], "description": "Order life-cycle status" },
+        "paymentMethod": { "type": "string", "enum": ["badge_card", "online_card", "cash"], "description": "Payment option chosen" },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "refunded"], "description": "Cash flow and clearance status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Order creation timestamp" },
+        "deliveryTime": { "type": "string", "format": "date-time", "description": "Timestamp indicating when delivery was completed" },
+        "notes": { "type": "string", "description": "Special dietary or delivery remarks" },
+        "steps": { "type": "array", "description": "Detailed logistical history milestones list" }
+      },
+      "required": ["id", "employeeId", "employeeName", "items", "total", "status", "paymentMethod", "paymentStatus", "createdAt", "steps"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "A hospital member (Nurse, Doctor, Chef, Driver) registered on the platform",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Authentication ID of the user" },
+        "name": { "type": "string", "description": "Full display name" },
+        "email": { "type": "string", "description": "Hospital professional email" },
+        "phone": { "type": "string", "description": "Active phone line" },
+        "badgeNumber": { "type": "string", "description": "Physical hospital card number" },
+        "department": { "type": "string", "description": "Registered division" },
+        "building": { "type": "string", "description": "Primary building location" },
+        "floor": { "type": "string", "description": "Primary office floor" },
+        "room": { "type": "string", "description": "Primary office room" },
+        "walletBalance": { "type": "number", "description": "Digital wallet balance loaded via badge tap" },
+        "role": { "type": "string", "enum": ["employee", "restaurant_admin", "delivery"], "description": "Application permission group" }
+      },
+      "required": ["id", "name", "email", "badgeNumber", "walletBalance", "role"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "System-wide notification targeting a specific user role or ID",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique notification sequence ID" },
+        "userId": { "type": "string", "description": "Target user ID who should receive this notification" },
+        "title": { "type": "string", "description": "Short heading statement" },
+        "message": { "type": "string", "description": "Detailed text content of the notification" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "alert"], "description": "Importance level/styling theme" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Timestamp when triggered" },
+        "read": { "type": "boolean", "description": "Has this notification been read by the target recipient" },
+        "orderId": { "type": "string", "description": "Associated order tracking ID if any" }
+      },
+      "required": ["id", "userId", "title", "message", "type", "timestamp", "read"]
+    }
+  },
+  "firestore": {
+    "meals/{mealId}": {
+      "schema": "Meal",
+      "description": "Available food menus and next day planning items"
+    },
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Meal delivery tracker entries and historical items"
+    },
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Hospital staff and operator system directories"
+    },
+    "notifications/{notificationId}": {
+      "schema": "AppNotification",
+      "description": "Logistical alerts and order updates"
+    }
+  }
+}

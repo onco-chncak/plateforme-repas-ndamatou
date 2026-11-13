@@ -1,0 +1,19 @@
+{
+  "name": "ndamatou-bictorys-sandbox",
+  "account_id": "aa25c8f9cbda259c9b0e892971c90521",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-13",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": {
+    "APP_ENV": "sandbox",
+    "BICTORYS_API_URL": "https://api.test.bictorys.com",
+    "PAYMENTS_ENABLED": "true"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "ndamatou-bictorys-sandbox",
+    "database_id": "9c6a8cfe-c4ef-460f-b90c-969529667995"
+  }]
+}

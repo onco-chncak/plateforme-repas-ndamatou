@@ -1,0 +1,13 @@
+{
+  "name": "ndamatou-bictorys-sandbox",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test worker.test.mjs worker.runtime.test.mjs",
+    "deploy": "npx --yes wrangler@4.161.0 deploy",
+    "dev": "npx --yes wrangler@4.161.0 dev"
+  },
+  "devDependencies": {
+    "miniflare": "5.20261110.2-beta"
+  }
+}

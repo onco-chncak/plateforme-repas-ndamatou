@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Nettoyage application Ndamatou</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: Arial, sans-serif;
+      }
+      main {
+        width: min(92vw, 520px);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.92);
+        padding: 28px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+      p {
+        color: #cbd5e1;
+        line-height: 1.5;
+      }
+      .status {
+        margin-top: 18px;
+        border-radius: 12px;
+        background: #1d4ed8;
+        padding: 12px;
+        font-weight: 700;
+      }
+      button {
+        margin-top: 18px;
+        border: 0;
+        border-radius: 12px;
+        background: #ffffff;
+        color: #0f172a;
+        padding: 12px 16px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Nettoyage de l'application</h1>
+      <p>
+        Cette page efface uniquement les anciens caches de ce navigateur et la session locale.
+        Les comptes, soldes badges, commandes et recharges stockes dans Firebase ne sont pas supprimes.
+      </p>
+      <div id="status" class="status">Nettoyage en cours...</div>
+      <button id="retry" type="button" hidden>Relancer le nettoyage</button>
+    </main>
+    <script>
+      async function deleteKnownDatabases() {
+        var names = [
+          'firebaseLocalStorageDb',
+          'firestore/[DEFAULT]/repas-Ndamatou-44b98/(default)',
+          'firebase-heartbeat-database',
+          'firebase-installations-database'
+        ];
+
+        if (indexedDB.databases) {
+          try {
+            var databases = await indexedDB.databases();
+            databases.forEach(function (database) {
+              if (database && database.name) names.push(database.name);
+            });
+          } catch (error) {
+            console.warn('Liste IndexedDB indisponible', error);
+          }
+        }
+
+        await Promise.all(Array.from(new Set(names)).map(function (name) {
+          return new Promise(function (resolve) {
+            var request = indexedDB.deleteDatabase(name);
+            request.onsuccess = resolve;
+            request.onerror = resolve;
+            request.onblocked = resolve;
+          });
+        }));
+      }
+
+      async function resetApp() {
+        var status = document.getElementById('status');
+        var retry = document.getElementById('retry');
+        retry.hidden = true;
+        try {
+          status.textContent = 'Suppression des anciens caches...';
+          if ('serviceWorker' in navigator) {
+            var registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map(function (registration) {
+              return registration.unregister();
+            }));
+          }
+          if ('caches' in window) {
+            var cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map(function (cacheName) {
+              return caches.delete(cacheName);
+            }));
+          }
+
+          status.textContent = 'Suppression de la session locale...';
+          localStorage.clear();
+          sessionStorage.clear();
+          await deleteKnownDatabases();
+
+          status.textContent = 'Termine. Redirection vers la connexion...';
+          setTimeout(function () {
+            window.location.replace('/?fresh=' + Date.now());
+          }, 900);
+        } catch (error) {
+          console.error(error);
+          status.textContent = 'Nettoyage incomplet. Appuyez sur le bouton pour reessayer.';
+          retry.hidden = false;
+        }
+      }
+
+      document.getElementById('retry').addEventListener('click', resetApp);
+      resetApp();
+    </script>
+  </body>
+</html>
+

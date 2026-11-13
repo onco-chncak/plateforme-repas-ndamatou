@@ -1,0 +1,6 @@
+{
+  "name": "Plateforme Repas CHNCAK",
+  "description": "Application web et mobile de commande et gestion de repas, livraisons, stocks, planification de menus et analyses pour l'hôpital CHNCAK.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,115 @@
+RÉPUBLIQUE DU SÉNÉGAL
+
+Centre Hospitalier National Cheikh Ahmadoul Khadim de Touba
+
+Plateforme interne de commande des repas du personnel
+
+DIRECTRICE
+
+Dr Bineta Diabel BA MBACKE
+
+RESTAURANT
+
+Service restauration
+
+PLATEFORME REPAS CHNCAK
+Touba
+
+GESTION LOGISTIQUE & ALIMENTAIRE INTERNE
+
+Firebase Synchronisé (Cloud)
+Personnel CHNCAK Touba
+Déconnexion
+3
+
+Espace personnel CHNCAK Touba : Commandez votre repas et choisissez consommation sur place ou livraison.
+
+PERSONNEL DU CHNCAK TOUBA
+Bonsoir, Dr. SERIGNE MOR SAMB GUEYE
+
+Oncologie - Bâtiment Principal A, Ch. Biologiste
+
+Solde Badge Repas
+108 920 FCFA
+
+COMMANDE REPAS 18:00 - 09:00 (TRAVERSE MINUIT)
+
+00:00:00
+
+Commande fermée. Appelez +221 33 978 37 47.
+
+DEUX PLATS CHAUDS DISPONIBLES AUJOURD'HUI
+
+Thiéboudienne Penda Mbaye (Riz au poisson)
+
+53
+
+portions restantes
+
+Yassa au poulet grillé
+
+33
+
+portions restantes
+
+Menus du Jour
+Semaine & dîner
+Mon historique (0)
+Mon badge & recharges
+Messagerie
+TOUT (2)
+🥣 ENTRÉES
+0
+🥩 PLATS CHAUDS
+2
+🍰 DESSERTS
+0
+🥤 BOISSONS
+0
+Plat
+410 FCFA
+Prix réel 800 F
+Disponible
+Thiéboudienne Penda Mbaye (Riz au poisson)
+
+Le plat national sénégalais : riz parfumé au poisson frais, sauce tomate mijotée, manioc, carotte, chou et aubergine.
+
+Total personnel
+410 F
+Part hôpital
+390 F (49%)
+680 kcal
+Attention : Poisson
+Attention : Gluten
+PLAT
+Poulet
+410 FCFA
+Prix réel 800 F
+Disponible
+Yassa au poulet grillé
+
+Poulet mariné au citron et à la moutarde, grillé et servi avec une généreuse sauce aux oignons caramélisés et riz blanc.
+
+Total personnel
+410 F
+Part hôpital
+390 F (49%)
+620 kcal
+Attention : Moutarde
+PLAT
+Mon Panier Repas
+
+Votre panier est vide
+
+Sélectionnez des plats à gauche pour passer commande.
+
+Total :
+0 FCFA
+Commander mon Repas
+
+Portail culinaire officiel du Centre Hospitalier National Cheikh Ahmadoul Khadim de Touba (CHNCAK) — © 2026
+
+Copyright SMSG 2026 - smsgueye@gmail.com - 774190805
+
+Version: 2.1.0-Release
+Sécurisé TLS 1.3 avec Firebase

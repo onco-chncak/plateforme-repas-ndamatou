@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  min-height: 100%;
+  height: auto;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100%;
+  height: auto;
+  overscroll-behavior-y: auto;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+
+#root {
+  min-height: 100%;
+  height: auto;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+.min-h-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@supports (height: 100svh) {
+  .min-h-screen {
+    min-height: 100svh;
+  }
+}
+
+.app-marquee-track {
+  display: inline-flex;
+  min-width: 100%;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.employee-mobile-tabs {
+  scrollbar-width: none;
+}
+
+.employee-mobile-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.restaurant-tabbar > button {
+  min-width: 145px;
+}
+
+@media (max-width: 640px) {
+  .restaurant-tabbar > button {
+    min-width: calc(50% - 0.25rem);
+    flex: 1 1 calc(50% - 0.25rem);
+  }
+}
+
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

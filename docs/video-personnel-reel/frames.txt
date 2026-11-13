@@ -1,0 +1,16 @@
+file 'final-01.jpg'
+duration 5
+file 'final-02.jpg'
+duration 5
+file 'final-03.jpg'
+duration 5
+file 'final-04.jpg'
+duration 5
+file 'final-05.jpg'
+duration 5
+file 'final-06.jpg'
+duration 5
+file 'final-07.jpg'
+duration 5
+file 'final-07.jpg'
+duration 2

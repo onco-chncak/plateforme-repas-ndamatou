@@ -1,0 +1,21 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+.firebase/
+.checkpoints/
+
+# Sensitive local credentials and signing material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*credentials*.json
+serviceAccount*.json
+**/.secrets.local.json

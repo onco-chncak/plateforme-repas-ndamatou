@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Repas CHNCAK</string>
+    <string name="title_activity_main">Repas CHNCAK</string>
+    <string name="package_name">sn.chncak.repas</string>
+    <string name="custom_url_scheme">sn.chncak.repas</string>
+</resources>

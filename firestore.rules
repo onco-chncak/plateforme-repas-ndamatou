@@ -1,0 +1,1094 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function ownsExistingProfile(userId) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        // Security: ownership must be proven from the stored profile only.
+        // Never trust request.resource.data.email, badgeNumber or phone as
+        // identity proof because a modified client can forge those fields.
+        (resource.data.email is string && resource.data.email == request.auth.token.email) ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          resource.data.badgeNumber is string &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.badgeNumber is string &&
+          resource.data.badgeNumber == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.badgeNumber
+        ) ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          resource.data.phone is string &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone is string &&
+          resource.data.phone == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone
+        )
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isEmployeeEmploymentTypeUnlocked() {
+      return exists(/databases/$(database)/documents/settings/institution)
+        && get(/databases/$(database)/documents/settings/institution).data.employeeEmploymentTypeLocked == false;
+    }
+
+    function isInstitutionAdminEmail() {
+      return isSignedIn() && request.auth.token.get('email_verified', false) == true && request.auth.token.email in [
+        'smsgueye@gmail.com',
+        'sms@chncak.sn',
+        'smsg@chncak.sn',
+        'chef.diop@chncak.sn',
+        'onco.chn.cak@gmail.com',
+        'mamb242@gmail.com',
+        'mambb242@gmail.com'
+      ];
+    }
+
+    function isPlatformAdmin() {
+      return isSignedIn() && (
+        isSensitiveSuperAdmin() ||
+        isInstitutionAdminEmail() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        getUserData().role == 'admin'
+      );
+    }
+
+    function isSensitiveSuperAdmin() {
+      return isSignedIn() && request.auth.token.get('email_verified', false) == true && request.auth.token.email == 'smsgueye@gmail.com';
+    }
+
+    function isRestaurantManager() {
+      return isSignedIn() && getUserData().role == 'restaurant_admin';
+    }
+
+    function isRestaurantOperator() {
+      return isSignedIn() && getUserData().role == 'operator';
+    }
+
+    function isAdmin() {
+      return isPlatformAdmin() || isRestaurantManager();
+    }
+
+    function isDelivery() {
+      return isSignedIn() && getUserData().role == 'delivery';
+    }
+
+    function isAccountant() {
+      return isSignedIn() && (
+        (request.auth.token.get('email_verified', false) == true && request.auth.token.email == 'comptable.repas@chncak.sn') ||
+        getUserData().role == 'accountant' ||
+        getUserData().accountantAccess == true
+      );
+    }
+
+    function isTrustedTopupEmail() {
+      return isSignedIn() && request.auth.token.get('email_verified', false) == true && request.auth.token.email in [
+        'smsgueye@gmail.com',
+        'sms@chncak.sn',
+        'smsg@chncak.sn',
+        'chef.diop@chncak.sn',
+        'comptable.repas@chncak.sn',
+        'm.diallo@chncak.sn'
+      ];
+    }
+
+    function isTrustedDeliveryAdminEmail() {
+      return isSignedIn() && request.auth.token.get('email_verified', false) == true && request.auth.token.email in [
+        'smsgueye@gmail.com',
+        'sms@chncak.sn',
+        'smsg@chncak.sn',
+        'chef.diop@chncak.sn',
+        'onco.chn.cak@gmail.com'
+      ];
+    }
+
+    function isTopupOperator() {
+      return isAccountant()
+        || isRestaurantManager()
+        || isRestaurantOperator()
+        || isTrustedTopupEmail()
+        || (isSignedIn() && getUserData().topupAccess == true);
+    }
+
+    function isHr() {
+      return isSignedIn() && (isInstitutionAdminEmail() || getUserData().role == 'hr' || getUserData().hrAccess == true);
+    }
+
+    function isHrValidatorFromIncoming() {
+      return isSignedIn()
+        && incoming().validatedById is string
+        && exists(/databases/$(database)/documents/users/$(incoming().validatedById))
+        && (
+          get(/databases/$(database)/documents/users/$(incoming().validatedById)).data.hrAccess == true ||
+          get(/databases/$(database)/documents/users/$(incoming().validatedById)).data.role == 'hr' ||
+          get(/databases/$(database)/documents/users/$(incoming().validatedById)).data.role == 'admin'
+        )
+        && (
+          incoming().validatedById == request.auth.uid ||
+          (
+            get(/databases/$(database)/documents/users/$(incoming().validatedById)).data.email is string &&
+            get(/databases/$(database)/documents/users/$(incoming().validatedById)).data.email == request.auth.token.email
+          )
+        );
+    }
+
+    function isHrWriteActor() {
+      return isSignedIn() && (
+        isInstitutionAdminEmail() ||
+        isHr() ||
+        isHrValidatorFromIncoming()
+      );
+    }
+
+    function isHrSafeEmployeeTarget() {
+      return !('role' in existing()) ||
+        existing().role == 'employee' ||
+        existing().role == 'personnel' ||
+        existing().role == 'Personnel' ||
+        existing().role == 'staff' ||
+        existing().role == '' ||
+        existing().hrAccess == true;
+    }
+
+    function isHrSafeProfileUpdate() {
+      return isHrWriteActor()
+        && isHrSafeEmployeeTarget()
+        && !incoming().diff(existing()).affectedKeys().hasAny([
+          'id',
+          'badgeNumber',
+          'walletBalance',
+          'role',
+          'hrAccess',
+          'accountantAccess',
+          'deliveryCodeViewer',
+          'deliverySelectionDailyLimit',
+          'deliveryVisibleDepartments',
+          'deliveryAllowed',
+          'deliveryPreAuthorizedUntil',
+          'deliveryPreAuthorizedById',
+          'deliveryPreAuthorizedByName',
+          'deliveryPreAuthorizedScope'
+        ])
+        && (!('name' in incoming()) || (incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120))
+        && (!('email' in incoming()) || (incoming().email is string && incoming().email.size() <= 150))
+        && (!('phone' in incoming()) || (incoming().phone is string && incoming().phone.size() <= 40))
+        && (!('status' in incoming()) || incoming().status in ['pending', 'active', 'blocked'])
+        && (!('badgeBlocked' in incoming()) || incoming().badgeBlocked is bool)
+        && (!('subsidyExcluded' in incoming()) || incoming().subsidyExcluded is bool) &&
+        (!('alwaysStaffMealPrice' in incoming()) || incoming().alwaysStaffMealPrice is bool)
+        && (!('extraSubsidyCredits' in incoming()) || (incoming().extraSubsidyCredits is int && incoming().extraSubsidyCredits >= 0 && incoming().extraSubsidyCredits <= 20))
+        && (!('employmentType' in incoming()) || (incoming().employmentType is string && incoming().employmentType.size() <= 80))
+        && (!('contractEndDate' in incoming()) || incoming().contractEndDate == null || (incoming().contractEndDate is string && incoming().contractEndDate.size() <= 20))
+        && (!('department' in incoming()) || (incoming().department is string && incoming().department.size() <= 120))
+        && (!('building' in incoming()) || (incoming().building is string && incoming().building.size() <= 120))
+        && (!('floor' in incoming()) || (incoming().floor is string && incoming().floor.size() <= 80))
+        && (!('room' in incoming()) || (incoming().room is string && incoming().room.size() <= 120))
+        && (!('verificationFlagged' in incoming()) || incoming().verificationFlagged is bool)
+        && (!('verificationFlaggedAt' in incoming()) || incoming().verificationFlaggedAt == null || (incoming().verificationFlaggedAt is string && incoming().verificationFlaggedAt.size() <= 40))
+        && (!('verificationFlaggedBy' in incoming()) || incoming().verificationFlaggedBy == null || (incoming().verificationFlaggedBy is string && incoming().verificationFlaggedBy.size() <= 128))
+        && (!('validatedById' in incoming()) || incoming().validatedById == null || (incoming().validatedById is string && incoming().validatedById.size() <= 128))
+        && (!('validatedByName' in incoming()) || incoming().validatedByName == null || (incoming().validatedByName is string && incoming().validatedByName.size() <= 120))
+        && (!('validatedAt' in incoming()) || incoming().validatedAt == null || (incoming().validatedAt is string && incoming().validatedAt.size() <= 40));
+    }
+
+    function hasValidDeliveryIssuer(data) {
+      return data.deliveryAuthorizedById is string
+        && (
+          (
+            exists(/databases/$(database)/documents/users/$(data.deliveryAuthorizedById))
+            && get(/databases/$(database)/documents/users/$(data.deliveryAuthorizedById)).data.deliveryCodeViewer == true
+            && (
+              sameDeliveryDepartment(get(/databases/$(database)/documents/users/$(data.deliveryAuthorizedById)).data.department, data.department) ||
+              deliveryDepartmentInList(get(/databases/$(database)/documents/users/$(data.deliveryAuthorizedById)).data.deliveryVisibleDepartments, data.department)
+            )
+          ) ||
+          (
+            exists(/databases/$(database)/documents/deliveryCodeIssuers/$(data.deliveryAuthorizedById))
+            && get(/databases/$(database)/documents/deliveryCodeIssuers/$(data.deliveryAuthorizedById)).data.enabled == true
+            && (
+              sameDeliveryDepartment(get(/databases/$(database)/documents/deliveryCodeIssuers/$(data.deliveryAuthorizedById)).data.department, data.department) ||
+              deliveryDepartmentInList(get(/databases/$(database)/documents/deliveryCodeIssuers/$(data.deliveryAuthorizedById)).data.deliveryVisibleDepartments, data.department)
+            )
+          )
+        );
+    }
+
+    function isDeliveryIssuerForExistingOrder() {
+      return isSignedIn()
+        && (
+          getUserData().deliveryCodeViewer == true ||
+          (
+            exists(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.enabled == true
+          )
+        )
+        && deliveryIssuerCanSeeDepartment(existing().department);
+    }
+
+    function isGynecologyDepartment(value) {
+      return value in [
+        'Gynecologie',
+        'Gynéco/Maternité',
+        'Gynécologie/Maternité',
+        'GynÃ©co/MaternitÃ©',
+        'gyneco/meternite',
+        'gyneco/maternite',
+        'gynecologie/maternite',
+        'gynecologie/meternite',
+        'gycologie/'
+      ];
+    }
+
+    function sameDeliveryDepartment(left, right) {
+      return left == right || (isGynecologyDepartment(left) && isGynecologyDepartment(right));
+    }
+
+    function deliveryDepartmentInList(list, department) {
+      return list is list && (
+        department in list ||
+        (
+          isGynecologyDepartment(department) &&
+          (
+            'Gynecologie' in list ||
+            'Gynécologie' in list ||
+            'GynÃ©cologie' in list ||
+            'Gynéco/Maternité' in list ||
+            'GynÃ©co/MaternitÃ©' in list ||
+            'Gynécologie/Maternité' in list ||
+            'GynÃ©cologie/MaternitÃ©' in list ||
+            'Gynecologie/Maternite' in list ||
+            'gyneco/maternite' in list ||
+            'gynecologie/maternite' in list ||
+            'gyneco/meternite' in list ||
+            'gynecologie/meternite' in list
+          )
+        )
+      );
+    }
+
+    function deliveryIssuerCanSeeDepartment(department) {
+      return (
+        getUserData().deliveryCodeViewer == true && (
+          sameDeliveryDepartment(getUserData().department, department) ||
+          deliveryDepartmentInList(getUserData().deliveryVisibleDepartments, department)
+        )
+      ) || (
+        exists(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.enabled == true &&
+        (
+          sameDeliveryDepartment(get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.department, department) ||
+          deliveryDepartmentInList(get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.deliveryVisibleDepartments, department)
+        )
+      );
+    }
+
+    function isDeliveryIssuerForUserDepartment(department) {
+      return (
+        getUserData().deliveryCodeViewer == true && (
+          sameDeliveryDepartment(getUserData().department, department) ||
+          deliveryDepartmentInList(getUserData().deliveryVisibleDepartments, department)
+        )
+      ) || (
+        exists(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.enabled == true &&
+        (
+          sameDeliveryDepartment(get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.department, department) ||
+          deliveryDepartmentInList(get(/databases/$(database)/documents/deliveryCodeIssuers/$(request.auth.uid)).data.deliveryVisibleDepartments, department)
+        )
+      );
+    }
+
+    function orderProfileExists(data) {
+      return data.employeeId is string
+        && exists(/databases/$(database)/documents/users/$(data.employeeId));
+    }
+
+    function getOrderProfileData(data) {
+      return get(/databases/$(database)/documents/users/$(data.employeeId)).data;
+    }
+
+    function isOwnOrderProfile(data) {
+      return isSignedIn()
+        && data.employeeId is string
+        && (
+          data.employeeId == request.auth.uid ||
+          (
+            orderProfileExists(data) &&
+            getOrderProfileData(data).email is string &&
+            getOrderProfileData(data).email == request.auth.token.email
+          ) ||
+          (
+            orderProfileExists(data) &&
+            exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+            getUserData().badgeNumber is string &&
+            getOrderProfileData(data).badgeNumber is string &&
+            getUserData().badgeNumber == getOrderProfileData(data).badgeNumber
+          ) ||
+          (
+            orderProfileExists(data) &&
+            exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+            getUserData().phone is string &&
+            getOrderProfileData(data).phone is string &&
+            getUserData().phone == getOrderProfileData(data).phone
+          )
+        );
+    }
+
+    // Collection: Settings
+    match /settings/{settingId} {
+      allow get, list: if true;
+      allow create: if isPlatformAdmin();
+      allow update: if (
+        isPlatformAdmin() && (
+          settingId != 'institution' ||
+          isSensitiveSuperAdmin() ||
+          !incoming().diff(existing()).affectedKeys().hasAny([
+            'advertisingEnabled',
+            'advertisingText',
+            'advertisingImageUrl',
+            'advertisingSpeedSeconds',
+            'wavePaymentLink',
+            'registrationAccessEnabled',
+            'registrationAccessCode'
+          ])
+        )
+      ) || (
+        settingId == 'institution' &&
+        isHr() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['employeeEmploymentTypeLocked']) &&
+        incoming().employeeEmploymentTypeLocked is bool
+      );
+      allow delete: if isSensitiveSuperAdmin();
+    }
+
+    match /restaurantPresence/{employeeId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isAdmin() || (
+        isSignedIn() &&
+        request.auth.uid == employeeId &&
+        incoming().employeeId == request.auth.uid &&
+        incoming().active is bool
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Collection: Users
+
+    // Spark: immutable journal + receipt + balance must commit together.
+    function isSparkCashier() {
+      let actor = getUserData();
+      return isSignedIn()
+        && !(actor.get('status', 'active') in ['pending', 'blocked'])
+        && actor.get('badgeBlocked', false) == false
+        && (actor.get('role', '') in ['admin', 'restaurant_admin', 'operator', 'accountant']
+          || actor.get('accountantAccess', false) == true || actor.get('topupAccess', false) == true);
+    }
+    function sparkSourceIsValid(o) {
+      return (o.kind == 'topup' && isSparkCashier() && o.amount > 0 && o.cashierId == request.auth.uid)
+        || (o.kind == 'adjustment' && o.requestedTarget == o.balanceAfter && isSparkCashier() && o.cashierId == request.auth.uid && o.correctionReason is string && o.correctionReason.size() >= 5)
+        || (o.kind == 'wave_topup' && o.id == 'wave-' + o.sourceId && isSparkCashier() && o.cashierId == request.auth.uid && o.method == 'wave' && o.amount > 0
+          && get(/databases/$(database)/documents/waveTopupRequests/$(o.sourceId)).data.status == 'pending'
+          && get(/databases/$(database)/documents/waveTopupRequests/$(o.sourceId)).data.employeeId == o.employeeId
+          && get(/databases/$(database)/documents/waveTopupRequests/$(o.sourceId)).data.amount == o.amount
+          && getAfter(/databases/$(database)/documents/waveTopupRequests/$(o.sourceId)).data.status == 'approved'
+          && getAfter(/databases/$(database)/documents/waveTopupRequests/$(o.sourceId)).data.validatedBy == request.auth.uid)
+        || (o.kind == 'prepaid' && o.id == 'prepaid-' + o.sourceId && o.amount > 0 && request.auth.uid == o.employeeId
+          && get(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.status == 'active'
+          && get(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.employeeId == o.employeeId
+          && get(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.amount == o.amount
+          && get(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.cashierId == o.cashierId
+          && get(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.cashierName == o.cashierName
+          && getAfter(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.status == 'used'
+          && getAfter(/databases/$(database)/documents/prepaidCards/$(o.sourceId)).data.usedBy == request.auth.uid)
+        || (o.kind == 'correction' && isSparkCashier() && o.cashierId == request.auth.uid && o.id == 'correction-' + o.sourceId
+          && o.correctionReason is string && o.correctionReason.size() >= 5
+          && sparkCorrectionSource(o))
+        || (o.kind == 'refund' && isSparkCashier() && o.id == 'refund-' + o.sourceId && o.cashierId == request.auth.uid
+          && get(/databases/$(database)/documents/orders/$(o.sourceId)).data.employeeId == o.employeeId
+          && get(/databases/$(database)/documents/orders/$(o.sourceId)).data.paymentStatus == 'paid'
+          && get(/databases/$(database)/documents/orders/$(o.sourceId)).data.status in ['pending', 'preparing', 'ready', 'out_for_delivery', 'delivering']
+          && get(/databases/$(database)/documents/orders/$(o.sourceId)).data.total == o.amount
+          && getAfter(/databases/$(database)/documents/orders/$(o.sourceId)).data.status == 'cancelled'
+          && getAfter(/databases/$(database)/documents/orders/$(o.sourceId)).data.paymentStatus == 'refunded');
+    }
+    function sparkCorrectionSource(o) {
+      let source = get(/databases/$(database)/documents/cashTransactions/$(o.sourceId)).data;
+      return source.kind in ['topup', 'wave_topup', 'prepaid'] && source.employeeId == o.employeeId && o.requestedTarget is int && o.requestedTarget == source.amount + o.amount
+        && source.cashierId == request.auth.uid && !('correctedAt' in source)
+        && source.recordedAt is timestamp && request.time <= source.recordedAt + duration.value(60, 's')
+        && source.amount + o.amount >= 0
+        && getAfter(/databases/$(database)/documents/cashTransactions/$(o.sourceId)).data.correctedBy == request.auth.uid;
+    }
+    function sparkRefundCounters(o, before, after) {
+      let source = get(/databases/$(database)/documents/orders/$(o.sourceId)).data;
+      let sameDay = before.get('orderCounterDay', -1) == source.get('orderCounterDay', -2);
+      return after.get('regularPortionsToday', 0) == before.get('regularPortionsToday', 0) - (sameDay ? source.get('regularPortions', 0) : 0)
+        && after.get('hotPortionsToday', 0) == before.get('hotPortionsToday', 0) - (sameDay ? source.get('hotPortions', 0) : 0)
+        && after.get('regularPortionsToday', 0) >= 0 && after.get('hotPortionsToday', 0) >= 0;
+    }
+    function validSparkOperation(id, o) {
+      let before = get(/databases/$(database)/documents/users/$(o.employeeId)).data;
+      let after = getAfter(/databases/$(database)/documents/users/$(o.employeeId)).data;
+      let maximum = exists(/databases/$(database)/documents/settings/institution) ? get(/databases/$(database)/documents/settings/institution).data.get('maxBadgeBalance', 10000) : 10000;
+      return isSignedIn() && o.id == id && o.actorId == request.auth.uid
+        && !exists(/databases/$(database)/documents/walletOperations/$(id))
+        && o.amount is int && o.amount != 0 && o.balanceBefore == before.get('walletBalance', 0)
+        && o.balanceAfter is int && o.balanceAfter >= 0 && o.balanceAfter <= maximum
+        && o.balanceAfter == o.balanceBefore + o.amount && after.walletBalance == o.balanceAfter
+        && after.lastWalletOperationId == id && after.diff(before).affectedKeys().hasOnly(o.kind == 'refund' ? ['walletBalance', 'lastWalletOperationId', 'regularPortionsToday', 'hotPortionsToday'] : ['walletBalance', 'lastWalletOperationId'])
+        && (o.kind != 'refund' || sparkRefundCounters(o, before, after))
+        && (o.kind == 'refund' || (!(before.get('status', 'active') in ['pending', 'blocked']) && before.get('badgeBlocked', false) == false))
+        && o.employeeName == before.get('name', '') && o.badgeNumber == before.get('badgeNumber', '')
+        && o.recordedAt == request.time && o.createdAt is string && o.note is string && o.note.size() <= 1000
+        && o.method in ['cash', 'wave', 'orange_money'] && o.cashierName is string && validSparkFees(o)
+        && getAfter(/databases/$(database)/documents/cashTransactions/$(id)).data == o
+        && sparkSourceIsValid(o);
+    }
+    function validSparkLedgerUserUpdate(userId) {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance', 'lastWalletOperationId', 'regularPortionsToday', 'hotPortionsToday'])
+        && incoming().get('lastWalletOperationId', '') != existing().get('lastWalletOperationId', '')
+        && getAfter(/databases/$(database)/documents/walletOperations/$(incoming().lastWalletOperationId)).data.employeeId == userId
+        && validSparkOperation(incoming().lastWalletOperationId, getAfter(/databases/$(database)/documents/walletOperations/$(incoming().lastWalletOperationId)).data);
+    }
+
+    function sparkMinutes(value) { let parts = value.split(':'); return int(parts[0]) * 60 + int(parts[1]); }
+    function sparkOrderDay(s) { return int(math.floor((request.time.toMillis() - sparkMinutes(s.get('orderWindowStart', '00:00')) * 60000) / 86400000)); }
+    function sparkOrderingOpen(s) {
+      let now = request.time.hours() * 60 + request.time.minutes();
+      let start = sparkMinutes(s.get('orderWindowStart', '00:00'));
+      let end = sparkMinutes(s.get('orderWindowEnd', '09:00'));
+      let weekday = (int(math.floor(request.time.toMillis() / 86400000)) + 4) % 7;
+      return (!s.get('orderWindowEnabled', true) || (start != end && (start < end ? now >= start && now <= end : now >= start || now <= end)))
+        && (!s.get('weekendOrderingClosed', true) || !((weekday == 5 && now >= 1140) || weekday == 6 || (weekday == 0 && now < 1140)));
+    }
+    function sparkOrderItem(item, s, real, maximum, specialOrder) {
+      let meal = get(/databases/$(database)/documents/meals/$(item.meal.id)).data;
+      let after = getAfter(/databases/$(database)/documents/meals/$(item.meal.id)).data;
+      let special = meal.get('mealType', '') == 'special_dinner';
+      let hot = meal.category == 'plat' && !special;
+      return {
+        'id': item.meal.id, 'quantity': item.quantity, 'hot': hot ? item.quantity : 0, 'special': special ? item.quantity : 0,
+        'cost': (hot ? real : meal.price) * item.quantity,
+        // The sum of positive quantities is checked against maximum once below.
+        'valid': item.quantity is int && item.quantity > 0
+          && item.meal.diff(meal).affectedKeys().hasOnly(['id'])
+          && meal.get('isNextDay', false) == false && meal.get('isAvailableToday', true) == true
+          && (meal.category == 'plat' || s.get('extrasOrderingEnabled', false))
+          && (!special || (s.get('specialDinnerEnabled', false) && specialOrder))
+          && (!specialOrder || !hot)
+          // The meals collection independently restricts employee updates to stock.
+          && meal.stock >= item.quantity && after.stock == meal.stock - item.quantity
+      };
+    }
+    function sparkSubsidy(before, previousHot, hot) {
+      let excluded = before.get('subsidyExcluded', false);
+      let permanent = before.get('alwaysStaffMealPrice', false);
+      let extra = before.get('extraSubsidyCredits', 0);
+      return {
+        'count': excluded ? 0 : permanent ? hot : hot > 0 && (previousHot == 0 || extra > 0) ? 1 : 0,
+        'extra': !excluded && !permanent && hot > 0 && previousHot > 0 && extra > 0 ? 1 : 0
+      };
+    }
+    function sparkDeliveryFee(o, s) {
+      return o.get('fulfillmentMode', 'pickup') == 'delivery' && s.get('deliveryFeeEnabled', false) && s.get('deliveryFeePayer', 'hospital') == 'employee' ? s.get('deliveryFeeAmount', 0) : 0;
+    }
+    function sparkDailyCounters(before, day) {
+      return before.get('orderCounterDay', -1) == day ? {'quantity':before.get('regularPortionsToday', 0), 'hot':before.get('hotPortionsToday', 0)} : {'quantity':0, 'hot':0};
+    }
+    function sparkOrderTotals(o, before, after, s, prices, maximum, specialOrder) {
+      let a = sparkOrderItem(o.items[0], s, prices.real, maximum, specialOrder);
+      let b = o.items.size() > 1 ? sparkOrderItem(o.items[1], s, prices.real, maximum, specialOrder) : {'id':'', 'valid':true, 'quantity':0, 'hot':0, 'special':0, 'cost':0};
+      let quantity = a.quantity + b.quantity;
+      let hot = a.hot + b.hot;
+      let day = sparkOrderDay(s);
+      let previous = sparkDailyCounters(before, day);
+      let subsidy = sparkSubsidy(before, previous.hot, hot);
+      let regular = specialOrder ? 0 : quantity;
+      let discount = subsidy.count * (prices.real - prices.staff);
+      let mealCost = a.cost + b.cost;
+      return a.valid && b.valid && (o.items.size() < 2 || a.id != b.id)
+        && (!specialOrder || a.special + b.special > 0)
+        && quantity <= maximum && previous.quantity + regular <= maximum
+        && o.orderCounterDay == day && o.regularPortions == regular && o.hotPortions == hot && o.extraCreditsUsed == subsidy.extra
+        && after.orderCounterDay == day && after.regularPortionsToday == previous.quantity + regular && after.hotPortionsToday == previous.hot + hot
+        && after.get('extraSubsidyCredits', 0) == before.get('extraSubsidyCredits', 0) - subsidy.extra
+        && prices.staff >= 0 && prices.staff <= prices.real
+        && o.settlement == {
+          'policy': 'shared_510_505_v1',
+          'staffBase': mealCost - discount,
+          'hospitalBase': discount}
+        && o.total == mealCost - discount + sparkDeliveryFee(o, s);
+    }
+    function sparkOrderDate(o) {
+      return o.createdAtMillis is int && math.abs(request.time.toMillis() - o.createdAtMillis) <= 300000
+        && o.createdAt is string && o.createdAt.size() == 24;
+    }
+    function validSparkPaidOrder(o) {
+      let before = get(/databases/$(database)/documents/users/$(o.employeeId)).data;
+      let after = getAfter(/databases/$(database)/documents/users/$(o.employeeId)).data;
+      let settings = exists(/databases/$(database)/documents/settings/institution) ? get(/databases/$(database)/documents/settings/institution).data : {};
+      return o.employeeId == request.auth.uid && o.employeeName == before.name
+        && o.steps is list && o.steps.size() == 1 && o.steps[0].status == 'pending' && o.steps[0].timestamp == o.createdAt
+        && o.get('fulfillmentMode', 'pickup') in ['pickup', 'delivery'] && o.status == 'pending' && o.paymentMethod == 'badge_card' && o.paymentStatus == 'paid' && o.total is int && o.total > 0
+        && before.get('status', 'active') == 'active' && before.get('badgeBlocked', false) == false
+        && after.lastPaidOrderId == o.id && after.walletBalance == before.walletBalance - o.total && after.walletBalance is int && after.walletBalance >= 0
+        && o.items is list && o.items.size() > 0 && o.items.size() <= 2
+        && o.serverCreatedAt == request.time && sparkOrderDate(o) && sparkOrderingOpen(settings)
+        && sparkOrderTotals(o, before, after, settings, {'real':settings.get('realMealPrice', 1000), 'staff':settings.get('staffMealPrice', 500)}, settings.get('maxItemsPerOrder', 2), o.get('orderType', 'regular') == 'special_dinner');
+    }
+
+    function validSparkOrderDebit(userId) {
+      let orderId = incoming().get('lastPaidOrderId', '');
+      let order = getAfter(/databases/$(database)/documents/orders/$(orderId)).data;
+      // A new paired order must independently pass validSparkPaidOrder, including exact debit and counters.
+      return request.auth.uid == userId && orderId != '' && !exists(/databases/$(database)/documents/orders/$(orderId))
+        && incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance','lastPaidOrderId','extraSubsidyCredits','orderCounterDay','regularPortionsToday','hotPortionsToday'])
+        && order.id == orderId && order.employeeId == userId && order.paymentStatus == 'paid';
+    }
+    match /walletOperations/{operationId} {
+      allow get: if isSignedIn() && (!exists(/databases/$(database)/documents/walletOperations/$(operationId)) || resource.data.actorId == request.auth.uid || resource.data.employeeId == request.auth.uid || isSparkCashier());
+      allow list: if isSignedIn() && (resource.data.actorId == request.auth.uid || resource.data.employeeId == request.auth.uid || isSparkCashier());
+      allow create: if validSparkOperation(operationId, incoming());
+      allow update, delete: if false;
+    }
+
+
+    function sparkProfileFieldsValid() {
+      return incoming().get('name', '') is string && incoming().get('name', '').size() <= 120
+        && incoming().get('email', '') is string && incoming().get('email', '').size() <= 150
+        && incoming().get('phone', '') is string && incoming().get('phone', '').size() <= 40
+        && incoming().get('department', '') is string && incoming().get('department', '').size() <= 120
+        && incoming().get('photoUrl', '') is string && incoming().get('photoUrl', '').size() <= 500000
+        && incoming().get('role', 'employee') in ['employee', 'restaurant_admin', 'admin', 'accountant', 'delivery', 'hr', 'operator']
+        && incoming().get('status', 'active') in ['pending', 'active', 'blocked']
+        && incoming().get('badgeBlocked', false) is bool
+        && incoming().get('hrAccess', false) is bool && incoming().get('accountantAccess', false) is bool
+        && incoming().get('extraSubsidyCredits', 0) is int && incoming().get('extraSubsidyCredits', 0) >= 0 && incoming().get('extraSubsidyCredits', 0) <= 20;
+    }
+    function sparkSelfProfileUpdate(userId) {
+      return (request.auth.uid == userId || (request.auth.token.get('email_verified', false) == true && existing().get('email', '') == request.auth.token.get('email', '')))
+        && incoming().diff(existing()).affectedKeys().hasOnly(['id','badgeNumber','name','email','phone','department','building','floor','room','photoUrl','whatsappOptIn','employmentType','role','status','badgeBlocked','walletBalance','extraSubsidyCredits','hrAccess','accountantAccess'])
+        && incoming().get('id', userId) == userId
+        && incoming().get('badgeNumber', '') == existing().get('badgeNumber', incoming().get('badgeNumber', ''))
+        && incoming().get('role', 'employee') == existing().get('role', 'employee')
+        && incoming().get('status', 'active') == existing().get('status', incoming().get('status', 'active'))
+        && incoming().get('badgeBlocked', false) == existing().get('badgeBlocked', false)
+        && incoming().get('extraSubsidyCredits', 0) == existing().get('extraSubsidyCredits', 0)
+        && incoming().get('hrAccess', false) == existing().get('hrAccess', false)
+        && incoming().get('accountantAccess', false) == existing().get('accountantAccess', false)
+        && (!incoming().diff(existing()).affectedKeys().hasAny(['employmentType']) || !('employmentType' in existing()) || isEmployeeEmploymentTypeUnlocked());
+    }
+    function sparkProfileUpdate(userId) {
+      return isSignedIn() && incoming().get('walletBalance', 0) == existing().get('walletBalance', 0)
+        && incoming().get('lastWalletOperationId', '') == existing().get('lastWalletOperationId', '')
+        && incoming().get('lastPaidOrderId', '') == existing().get('lastPaidOrderId', '')
+        && sparkProfileFieldsValid() && (
+          sparkSelfProfileUpdate(userId)
+          || (isPlatformAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['id','badgeNumber','name','email','phone','department','building','floor','room','role','hrAccess','accountantAccess','topupAccess','restaurantAccess','status','badgeBlocked','subsidyExcluded','alwaysStaffMealPrice','extraSubsidyCredits','employmentType','contractEndDate','photoUrl','whatsappOptIn','deliveryAllowed','deliveryCodeViewer','deliveryVisibleDepartments','deliverySelectionDailyLimit','deliveryPreAuthorizedUntil','deliveryPreAuthorizedById','deliveryPreAuthorizedByName','deliveryPreAuthorizedScope','verificationFlagged','verificationFlaggedAt','verificationFlaggedBy','validatedById','validatedByName','validatedAt']))
+          || (isHr() && existing().get('role', 'employee') == 'employee'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['name','email','phone','department','building','floor','room','status','badgeBlocked','subsidyExcluded','alwaysStaffMealPrice','extraSubsidyCredits','employmentType','contractEndDate','verificationFlagged','verificationFlaggedAt','verificationFlaggedBy','validatedById','validatedByName','validatedAt'])
+            && (!incoming().diff(existing()).affectedKeys().hasAny(['validatedById']) || incoming().validatedById == request.auth.uid))
+          || (isSparkCashier() && incoming().diff(existing()).affectedKeys().hasOnly(['verificationFlagged','verificationFlaggedAt','verificationFlaggedBy']) && incoming().verificationFlaggedBy == request.auth.uid)
+          || ((isSparkCashier() || isTrustedDeliveryAdminEmail()) && incoming().diff(existing()).affectedKeys().hasOnly(['deliveryAllowed','deliveryCodeViewer','deliveryVisibleDepartments','deliverySelectionDailyLimit','deliveryPreAuthorizedUntil','deliveryPreAuthorizedById','deliveryPreAuthorizedByName','deliveryPreAuthorizedScope']))
+        );
+    }
+    function validSparkFees(o) {
+      let settings = exists(/databases/$(database)/documents/settings/institution) ? get(/databases/$(database)/documents/settings/institution).data : {};
+      let rate = settings.get('waveCashierFeeRate', 0);
+      let expected = o.kind in ['topup', 'wave_topup'] && o.method == 'wave' && rate > 0 && rate < 100 ? rate : 0;
+      return o.keys().hasAny(['feePolicy', 'grossAmount', 'processorFeeCents', 'netReceivedCents'])
+        ? validSharedSparkFees(o)
+        : o.waveFeeRate == expected && o.waveFeeAmount is int
+          && (o.method != 'orange_money' || o.kind == 'correction')
+          && o.waveFeeAmount == (expected > 0 ? math.round(o.amount * expected / (100 - expected)) : 0);
+    }
+    function validSharedSparkFees(o) {
+      return o.kind == 'topup' && o.method in ['wave', 'orange_money']
+        && o.feePolicy == 'shared_510_505_v1'
+        && o.grossAmount is int && o.grossAmount > 0 && o.grossAmount <= 1000000000
+        && o.amount == math.round(o.grossAmount * 101 / 102)
+        && o.waveFeeRate == 1 && o.waveFeeAmount == o.grossAmount - o.amount
+        && o.processorFeeCents is int && o.processorFeeCents == o.grossAmount * 2
+        && o.netReceivedCents is int && o.netReceivedCents == o.grossAmount * 98;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      
+      // Profiles are written by the owners themselves. DRH/admin accounts may
+      // also complete an employee profile that was visible in the directory but
+      // did not yet exist as a full Firestore document.
+      allow create: if incoming().id == userId && incoming().walletBalance == 0
+        && incoming().get('hrAccess', false) == false && incoming().get('accountantAccess', false) == false
+        && incoming().get('topupAccess', false) == false && incoming().get('restaurantAccess', false) == false
+        && incoming().get('extraSubsidyCredits', 0) == 0 && incoming().get('alwaysStaffMealPrice', false) == false
+        && !incoming().keys().hasAny(['lastWalletOperationId', 'lastPaidOrderId', 'orderCounterDay', 'regularPortionsToday', 'hotPortionsToday'])
+        && ((
+        isSignedIn()
+        && isOwner(userId)
+        && isValidUser(incoming())
+        && incoming().role == 'employee'
+        && (!('status' in incoming()) || incoming().status in ['pending', 'active'])
+        && (!('badgeBlocked' in incoming()) || incoming().badgeBlocked is bool)
+      ) || (
+        (isHrWriteActor() || isPlatformAdmin())
+        && isValidUser(incoming())
+        && incoming().id == userId
+        && incoming().role == 'employee'
+        && (!('status' in incoming()) || incoming().status in ['pending', 'active', 'blocked'])
+        && (!('badgeBlocked' in incoming()) || incoming().badgeBlocked is bool)
+        && (!('hrAccess' in incoming()) || incoming().hrAccess == false)
+        && (!('accountantAccess' in incoming()) || incoming().accountantAccess == false)
+      ));
+      
+      // Dynamic profile edit (e.g., updating location details or wallet)
+      allow update: if (
+        incoming().get('walletBalance', 0) == existing().get('walletBalance', 0) && sparkProfileUpdate(userId)
+      ) || (
+        incoming().keys().hasAll(['lastWalletOperationId']) && validSparkLedgerUserUpdate(userId)
+      ) || (
+        incoming().keys().hasAll(['lastPaidOrderId']) && incoming().lastPaidOrderId != existing().get('lastPaidOrderId', '') && validSparkOrderDebit(userId)
+      );
+
+      allow delete: if isPlatformAdmin() || (isHr() && existing().role == 'employee');
+    }
+
+    function isValidUser(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 120
+        && data.email is string && data.email.size() <= 120
+        && data.phone is string && data.phone.size() <= 40
+        && data.badgeNumber is string && data.badgeNumber.size() <= 40
+        && data.walletBalance is int
+        && data.role is string && data.role in ['employee', 'restaurant_admin', 'admin', 'accountant', 'delivery', 'hr', 'operator']
+        && (!('hrAccess' in data) || data.hrAccess is bool)
+        && (!('accountantAccess' in data) || data.accountantAccess is bool)
+        && (!('employmentType' in data) || (data.employmentType is string && data.employmentType.size() <= 80))
+        && (!('contractEndDate' in data) || (data.contractEndDate is string && data.contractEndDate.size() <= 20))
+        && (!('verificationFlagged' in data) || data.verificationFlagged is bool)
+        && (!('verificationFlaggedAt' in data) || (data.verificationFlaggedAt is string && data.verificationFlaggedAt.size() <= 40))
+        && (!('verificationFlaggedBy' in data) || (data.verificationFlaggedBy is string && data.verificationFlaggedBy.size() <= 128))
+        && (!('validatedById' in data) || (data.validatedById is string && data.validatedById.size() <= 128))
+        && (!('validatedByName' in data) || (data.validatedByName is string && data.validatedByName.size() <= 120))
+        && (!('validatedAt' in data) || (data.validatedAt is string && data.validatedAt.size() <= 40))
+        && (!('subsidyExcluded' in data) || data.subsidyExcluded is bool) &&
+        (!('alwaysStaffMealPrice' in data) || data.alwaysStaffMealPrice is bool)
+        && (!('extraSubsidyCredits' in data) || (data.extraSubsidyCredits is int && data.extraSubsidyCredits >= 0 && data.extraSubsidyCredits <= 20))
+        && (!('status' in data) || data.status in ['pending', 'active', 'blocked'])
+        && (!('badgeBlocked' in data) || data.badgeBlocked is bool)
+        && (!('deliveryAllowed' in data) || data.deliveryAllowed is bool)
+        && (!('deliveryCodeViewer' in data) || data.deliveryCodeViewer is bool)
+        && (!('deliveryVisibleDepartments' in data) || data.deliveryVisibleDepartments is list)
+        && (!('deliverySelectionDailyLimit' in data) || (data.deliverySelectionDailyLimit is int && data.deliverySelectionDailyLimit >= 1 && data.deliverySelectionDailyLimit <= 500))
+        && (!('deliveryPreAuthorizedUntil' in data) || (data.deliveryPreAuthorizedUntil is string && data.deliveryPreAuthorizedUntil.size() <= 40))
+        && (!('deliveryPreAuthorizedById' in data) || (data.deliveryPreAuthorizedById is string && data.deliveryPreAuthorizedById.size() <= 128))
+        && (!('deliveryPreAuthorizedByName' in data) || (data.deliveryPreAuthorizedByName is string && data.deliveryPreAuthorizedByName.size() <= 120))
+        && (!('deliveryPreAuthorizedScope' in data) || data.deliveryPreAuthorizedScope in ['daily', 'weekly', 'monthly', 'permanent'])
+        && (!('whatsappOptIn' in data) || data.whatsappOptIn is bool)
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500000));
+    }
+
+    match /cashTransactions/{transactionId} {
+      allow get, list: if isPlatformAdmin()
+        || isTopupOperator()
+        || (
+          isSignedIn() &&
+          (
+            resource.data.employeeId == request.auth.uid ||
+            resource.data.cashierId == request.auth.uid
+          )
+        );
+      allow create: if getAfter(/databases/$(database)/documents/walletOperations/$(transactionId)).data == incoming()
+        && validSparkOperation(transactionId, incoming());
+      allow update: if (
+        !('kind' in existing()) && isPlatformAdmin() && !incoming().keys().hasAny(['kind'])
+      ) || (
+        existing().get('kind', '') in ['topup', 'wave_topup', 'prepaid'] && isSparkCashier()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['correctedAt', 'correctedBy'])
+        && incoming().correctedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/walletOperations/$('correction-' + transactionId)).data.sourceId == transactionId
+        && validSparkOperation('correction-' + transactionId, getAfter(/databases/$(database)/documents/walletOperations/$('correction-' + transactionId)).data)
+      );
+      allow delete: if false;
+    }
+
+    match /registrationIdentifiers/{identifierId} {
+      allow get, list: if false;
+      allow create: if isSignedIn()
+        && !exists(/databases/$(database)/documents/registrationIdentifiers/$(identifierId))
+        && incoming().uid == request.auth.uid
+        && incoming().type in ['phone', 'email'];
+      allow update: if false;
+      allow delete: if isPlatformAdmin();
+    }
+
+    match /deliveryCodeIssuers/{issuerId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isPlatformAdmin() || isRestaurantManager() || isRestaurantOperator() || isTrustedDeliveryAdminEmail();
+    }
+
+    match /prepaidCards/{cardId} {
+      allow get, list: if isAdmin() || isAccountant() || (isSignedIn() && existing().employeeId == request.auth.uid);
+      allow create: if (isTopupOperator() || isPlatformAdmin())
+        && incoming().cashierId == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().amount is int
+        && incoming().amount > 0
+        && incoming().employeeId is string
+        && incoming().badgeNumber is string
+        && incoming().code is string;
+      allow update: if isAccountant() || isPlatformAdmin() || (
+        isSignedIn()
+        && existing().employeeId == request.auth.uid
+        && existing().status == 'active'
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'usedAt', 'usedBy'])
+        && incoming().status == 'used'
+        && incoming().usedBy == request.auth.uid
+      );
+      allow delete: if isPlatformAdmin();
+    }
+
+
+    match /waveTopupRequests/{requestId} {
+      allow get: if isSignedIn() && (existing().employeeId == request.auth.uid || isAccountant() || isAdmin());
+      allow list: if isSignedIn() && (resource.data.employeeId == request.auth.uid || isAccountant() || isAdmin());
+      allow create: if isSignedIn()
+        && incoming().employeeId == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().amount is int
+        && incoming().amount > 0
+        && incoming().reference is string
+        && incoming().reference.size() <= 80;
+      allow update: if existing().status == 'pending' && (
+        (isSparkCashier()
+          && incoming().status in ['approved', 'rejected']
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedAt', 'validatedBy']))
+        || (isSignedIn() && existing().employeeId == request.auth.uid
+          && incoming().status == 'cancelled'
+          && incoming().cancelledBy == request.auth.uid
+          && incoming().cancelledAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'cancelledBy', 'cancelledAt']))
+      );
+      allow delete: if false;
+    }
+
+    match /ideaBox/{ideaId} {
+      allow get, list: if isAdmin();
+      allow create: if isSignedIn()
+        && incoming().authorId == request.auth.uid
+        && incoming().authorName is string
+        && incoming().department is string
+        && incoming().text is string
+        && incoming().text.size() > 0
+        && incoming().text.size() <= 2000
+        && incoming().timestamp is string;
+      allow update, delete: if isPlatformAdmin();
+    }
+
+    match /satisfactionSurveys/{surveyId} {
+      allow get: if isAdmin() || (isSignedIn() && existing().employeeId == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if isSignedIn()
+        && incoming().employeeId == request.auth.uid
+        && incoming().employeeName is string
+        && incoming().badgeNumber is string
+        && incoming().department is string
+        && incoming().gender is string
+        && incoming().ageRange is string
+        && incoming().frequency is string
+        && incoming().ratings is map
+        && incoming().globalSatisfaction is string
+        && incoming().improvementText is string
+        && incoming().improvementText.size() <= 2000
+        && incoming().createdAt is string;
+      allow update, delete: if isPlatformAdmin();
+    }
+
+    // Collection: Meals
+    match /meals/{mealId} {
+      allow get, list: if isSignedIn();
+      allow create: if (isAdmin() || isRestaurantManager()) && isValidMeal(incoming());
+      allow update: if isSignedIn() && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['stock']) && incoming().stock is int && incoming().stock >= 0 && incoming().stock < existing().stock) ||
+        ((isAdmin() || isRestaurantManager()) && isValidMeal(incoming())) ||
+        // Practical restaurant counter update for daily menu activation,
+        // stock correction and token color without rewriting the whole meal.
+        (
+          (isAdmin() || isRestaurantManager() || isRestaurantOperator()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'isAvailableToday',
+            'isNextDay',
+            'tokenColor',
+            'stock',
+            'maxStock'
+          ]) &&
+          (!('isAvailableToday' in incoming()) || incoming().isAvailableToday is bool) &&
+          (!('isNextDay' in incoming()) || incoming().isNextDay is bool) &&
+          (!('tokenColor' in incoming()) || (incoming().tokenColor is string && incoming().tokenColor.size() <= 40)) &&
+          (!('stock' in incoming()) || (incoming().stock is int && incoming().stock >= 0)) &&
+          (!('maxStock' in incoming()) || (incoming().maxStock is int && incoming().maxStock >= 0))
+        ) ||
+        // Restaurant and delivery validation: expose only the daily number of meals actually handed over.
+        (
+          isSignedIn() &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'deliveredToday',
+            'deliveredDateKey',
+            'pickupDeliveredToday',
+            'deliveryDeliveredToday'
+          ]) &&
+          incoming().deliveredToday is int &&
+          incoming().deliveredToday >= 0 &&
+          incoming().deliveredDateKey is string
+        ) ||
+        // Action: Vote on proposed next day meal
+        (
+          existing().isNextDay == true &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['votesNextDay', 'votedBy']) &&
+          incoming().votesNextDay is int &&
+          incoming().votedBy is list
+        ) ||
+        // Reserving a portion while creating an order. Only stock may decrease.
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['stock']) &&
+          incoming().stock is int &&
+          incoming().stock >= 0 &&
+          incoming().stock < existing().stock
+        )
+      );
+      allow delete: if isAdmin() || isRestaurantManager();
+    }
+
+    function isValidMeal(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 150
+        && data.description is string && data.description.size() <= 1000
+        && data.category is string && data.category in ['entrée', 'plat', 'dessert', 'boisson']
+        && data.price is int && data.price >= 0
+        && data.stock is int && data.stock >= 0
+        && data.maxStock is int && data.maxStock >= 0
+        && (!('tokenColor' in data) || (data.tokenColor is string && data.tokenColor.size() <= 40))
+        && (!('deliveredToday' in data) || (data.deliveredToday is int && data.deliveredToday >= 0))
+        && (!('deliveredDateKey' in data) || data.deliveredDateKey is string)
+        && (!('pickupDeliveredToday' in data) || (data.pickupDeliveredToday is int && data.pickupDeliveredToday >= 0))
+        && (!('deliveryDeliveredToday' in data) || (data.deliveryDeliveredToday is int && data.deliveryDeliveredToday >= 0))
+        && (!('votesNextDay' in data) || (data.votesNextDay is int && data.votesNextDay >= 0))
+        && (!('votedBy' in data) || data.votedBy is list)
+        && (!('mealType' in data) || data.mealType in ['regular', 'special_dinner'])
+        && (!('voteScope' in data) || data.voteScope in ['daily', 'weekly'])
+        && data.image is string && data.image.size() <= 100
+        && data.isAvailableToday is bool
+        && data.isNextDay is bool
+        && data.calories is int && data.calories >= 0
+        && data.allergens is list;
+    }
+
+    // Collection: Orders
+    function preservesOrderLifecycle(orderId) {
+      let before = existing();
+      let after = incoming();
+      let sameStatus = after.status == before.status;
+      return (sameStatus || !(before.status in ['cancelled', 'expired', 'delivered', 'returned']))
+        && (before.paymentStatus != 'refunded' || (sameStatus && after.paymentStatus == 'refunded'))
+        && (after.paymentStatus == before.paymentStatus
+          || (before.paymentStatus == 'paid' && after.paymentStatus == 'refunded'
+            && !exists(/databases/$(database)/documents/walletOperations/$('refund-' + orderId))
+            && getAfter(/databases/$(database)/documents/walletOperations/$('refund-' + orderId)).data.kind == 'refund'
+            && getAfter(/databases/$(database)/documents/walletOperations/$('refund-' + orderId)).data.sourceId == orderId)
+          || (before.paymentStatus == 'pending' && after.paymentStatus == 'paid'
+            && (isAdmin() || isRestaurantOperator())));
+    }
+
+    match /orders/{orderId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      
+      allow create: if isSignedIn() && incoming().id == orderId && validSparkPaidOrder(incoming())
+        && (incoming().get('fulfillmentMode', 'pickup') == 'pickup' || get(/databases/$(database)/documents/users/$(incoming().employeeId)).data.get('deliveryAllowed', false) == true || hasValidDeliveryIssuer(incoming()));
+      allow update: if preservesOrderLifecycle(orderId) && !incoming().diff(existing()).affectedKeys().hasAny(['id','employeeId','total','items','paymentMethod','createdAt','serverCreatedAt','createdAtMillis','orderCounterDay','regularPortions','hotPortions','extraCreditsUsed','settlement']) && (isSignedIn() && (
+        // Fast UID owner path; legacy profile aliases retain their branches below.
+        (existing().employeeId == request.auth.uid && (
+          (existing().status in ['pending', 'preparing', 'delivering']
+            && incoming().status == 'cancelled'
+            && incoming().paymentStatus in ['paid', 'refunded']
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'paymentStatus', 'expirationGraceUsed', 'expirationGraceWeekKey']))
+          || (incoming().status == 'delivered' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'paymentStatus', 'deliveryTime', 'deliveredById', 'deliveredByName', 'deliveredByRole', 'deliveredVia']))
+          || (incoming().status == 'expired' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'expirationGraceUsed', 'expirationGraceWeekKey']))
+        )) ||
+        (isAdmin() && isValidOrder(incoming())) ||
+        // Operational status changes must also work for older orders created
+        // before every current validation field existed.
+        ((isAdmin() || isRestaurantOperator())
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'status',
+            'steps',
+            'paymentStatus',
+            'deliveryTime',
+            'deliveredById',
+            'deliveredByName',
+            'deliveredByRole',
+            'deliveredVia',
+            'expirationGraceUsed',
+            'expirationGraceWeekKey'
+          ])
+          && incoming().status in ['preparing', 'delivering', 'delivered', 'returned', 'cancelled', 'expired']) ||
+        // Action: Delivery driver updates status / steps
+        (isDelivery() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'paymentStatus', 'deliveryTime', 'deliveredById', 'deliveredByName', 'deliveredByRole', 'deliveredVia']) && (incoming().status in ['preparing', 'delivering', 'delivered', 'returned', 'cancelled', 'expired'])) ||
+        // Action: Employee user cancels an active order. Expired orders stay non-refundable.
+        (isOwnOrderProfile(existing())
+          && existing().status in ['pending', 'preparing', 'delivering']
+          && incoming().status == 'cancelled'
+          && incoming().paymentStatus in ['paid', 'refunded']
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'paymentStatus', 'expirationGraceUsed', 'expirationGraceWeekKey'])) ||
+        // Action: Employee converts a pending pickup order to delivery after entering the daily delivery code in the app.
+        (isOwnOrderProfile(existing())
+          && existing().status in ['pending', 'preparing']
+          && (!('fulfillmentMode' in existing()) || existing().fulfillmentMode == 'pickup')
+          && incoming().fulfillmentMode == 'delivery'
+          && hasValidDeliveryIssuer(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'fulfillmentMode',
+            'deliveryAuthorizedById',
+            'deliveryAuthorizedByName',
+            'deliveryAuthorizedByService',
+            'deliveryAuthorizationUsedAt',
+            'deliveryFeeEnabled',
+            'deliveryFeeAmount',
+            'deliveryFeePayer',
+            'total'
+          ])) ||
+        // Action: An authorized service representative selects a colleague for delivery.
+        (isDeliveryIssuerForExistingOrder()
+          && existing().status in ['pending', 'preparing']
+          && (!('fulfillmentMode' in existing()) || existing().fulfillmentMode == 'pickup')
+          && incoming().fulfillmentMode == 'delivery'
+          && hasValidDeliveryIssuer(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'fulfillmentMode',
+            'deliveryAuthorizedById',
+            'deliveryAuthorizedByName',
+            'deliveryAuthorizedByService',
+            'deliveryAuthorizationUsedAt',
+            'deliveryFeeEnabled',
+            'deliveryFeeAmount',
+            'deliveryFeePayer',
+            'total'
+          ])) ||
+        // Action: Restaurant manager converts an already-created pickup order to delivery for an admin-forced delivery profile.
+        (isRestaurantManager()
+          && existing().status in ['pending', 'preparing']
+          && (!('fulfillmentMode' in existing()) || existing().fulfillmentMode == 'pickup')
+          && incoming().fulfillmentMode == 'delivery'
+          && incoming().deliveryAuthorizedById is string
+          && incoming().deliveryAuthorizedByName is string
+          && incoming().deliveryAuthorizedByService is string
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'fulfillmentMode',
+            'deliveryAuthorizedById',
+            'deliveryAuthorizedByName',
+            'deliveryAuthorizedByService',
+            'deliveryAuthorizationUsedAt',
+            'deliveryFeeEnabled',
+            'deliveryFeeAmount',
+            'deliveryFeePayer',
+            'total'
+          ])) ||
+        // Action: Employee validates pickup/delivery by scanning the daily restaurant or courier QR.
+        (isOwnOrderProfile(existing()) && incoming().status == 'delivered' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'paymentStatus', 'deliveryTime', 'deliveredById', 'deliveredByName', 'deliveredByRole', 'deliveredVia'])) ||
+        // Action: Unclaimed employee order expires automatically at closing
+        (isOwnOrderProfile(existing()) && incoming().status == 'expired' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'steps', 'expirationGraceUsed', 'expirationGraceWeekKey']))
+      ));
+      allow delete: if false;
+    }
+
+    function isValidOrder(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.employeeId is string && data.employeeId.size() <= 128
+        && data.employeeName is string && data.employeeName.size() <= 150
+        && (!('employeeEmail' in data) || (data.employeeEmail is string && data.employeeEmail.size() <= 150))
+        && (!('employeePhone' in data) || (data.employeePhone is string && data.employeePhone.size() <= 40))
+        && (!('badgeNumber' in data) || (data.badgeNumber is string && data.badgeNumber.size() <= 40))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 120))
+        && (!('building' in data) || (data.building is string && data.building.size() <= 120))
+        && (!('floor' in data) || (data.floor is string && data.floor.size() <= 80))
+        && (!('room' in data) || (data.room is string && data.room.size() <= 120))
+        && data.items is list
+        && data.total is int && data.total >= 0
+        && data.status is string && data.status in ['pending', 'preparing', 'delivering', 'delivered', 'returned', 'cancelled', 'expired']
+        && data.paymentMethod is string && data.paymentMethod in ['badge_card', 'online_card', 'cash']
+        && data.paymentStatus is string && data.paymentStatus in ['pending', 'paid', 'refunded']
+        && data.createdAt is string
+        && (!('deliveredById' in data) || (data.deliveredById is string && data.deliveredById.size() <= 128))
+        && (!('deliveredByName' in data) || (data.deliveredByName is string && data.deliveredByName.size() <= 150))
+        && (!('deliveredByRole' in data) || (data.deliveredByRole is string && data.deliveredByRole.size() <= 80))
+        && (!('deliveredVia' in data) || (data.deliveredVia is string && data.deliveredVia.size() <= 80))
+        && (!('fulfillmentMode' in data) || data.fulfillmentMode in ['pickup', 'delivery'])
+        && (!('deliveryAuthorizedById' in data) || (data.deliveryAuthorizedById is string && data.deliveryAuthorizedById.size() <= 128))
+        && (!('deliveryAuthorizedByName' in data) || (data.deliveryAuthorizedByName is string && data.deliveryAuthorizedByName.size() <= 120))
+        && (!('deliveryAuthorizedByService' in data) || (data.deliveryAuthorizedByService is string && data.deliveryAuthorizedByService.size() <= 120))
+        && (!('deliveryAuthorizationUsedAt' in data) || (data.deliveryAuthorizationUsedAt is string && data.deliveryAuthorizationUsedAt.size() <= 40))
+        && (!('deliveryFeeEnabled' in data) || data.deliveryFeeEnabled is bool)
+        && (!('deliveryFeeAmount' in data) || (data.deliveryFeeAmount is int && data.deliveryFeeAmount >= 0))
+        && (!('deliveryFeePayer' in data) || data.deliveryFeePayer in ['employee', 'hospital'])
+        && (!('subsidyExcluded' in data) || data.subsidyExcluded is bool) &&
+        (!('alwaysStaffMealPrice' in data) || data.alwaysStaffMealPrice is bool)
+        && (!('deliveryTime' in data) || (data.deliveryTime is string && data.deliveryTime.size() <= 40))
+        && (!('restaurantExitedAt' in data) || (data.restaurantExitedAt is string && data.restaurantExitedAt.size() <= 40))
+        && (!('expirationGraceUsed' in data) || data.expirationGraceUsed is bool)
+        && (!('expirationGraceWeekKey' in data) || (data.expirationGraceWeekKey is string && data.expirationGraceWeekKey.size() <= 20))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('orderType' in data) || data.orderType in ['regular', 'special_dinner'])
+        && data.steps is list;
+    }
+
+    // Collection: Notifications
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() && (incoming().userId == request.auth.uid || isAdmin() || isDelivery() || isAccountant());
+      allow update: if isSignedIn() && (
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['read'])) ||
+        isAdmin()
+      );
+      allow delete: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+    }
+
+  }
+}
+
+
+
+
+
+
+
+
